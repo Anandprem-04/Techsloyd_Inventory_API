@@ -14,4 +14,8 @@ public interface CategoryRepository extends JpaRepository<Category, String> {
 
     // Fetch children of a specific category
     List<Category> findByParentId(String parentId);
+
+    long countByIsActiveTrue();
+    long countByIsActiveFalse();
+    long countByParentIsNull();
 }

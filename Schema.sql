@@ -1,4 +1,10 @@
 -- ==========================================
+-- DATABASE CREATION
+-- ==========================================
+    DROP DATABASE IF EXISTS api;
+    CREATE DATABASE api;
+    USE api;
+-- ==========================================
 -- POS SYSTEM SCHEMA (7 Tables)
 -- Fully Normalized for Hibernate & Barcode Scanning
 -- ==========================================

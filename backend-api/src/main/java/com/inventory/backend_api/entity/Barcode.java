@@ -1,37 +1,49 @@
 package com.inventory.backend_api.entity;
 
-import jakarta.persistence.*;
-import lombok.Data;
-import org.hibernate.annotations.CreationTimestamp;
 import java.time.LocalDateTime;
+
+import org.hibernate.annotations.CreationTimestamp;
+
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.OneToOne;
+import jakarta.persistence.Table;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
 
 @Entity
 @Table(name = "barcodes")
-@Data
+@Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
 public class Barcode {
 
     @Id
     @Column(nullable = false, unique = true)
-    private String barcode; // The barcode string itself is the ID
+    private String barcode; // The actual code (e.g. "012345678905")
 
-    @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    private BarcodeFormat format;
+    private String format; // EAN_13, UPC_A, CODE_128
 
-    // Can point to a Product...
+    // Link to Generic Product (e.g. Water Bottle)
     @OneToOne
     @JoinColumn(name = "product_id")
+    @JsonIgnore
     private Product product;
 
-    // ... OR a Variant (but not both)
+    // Link to Specific Variant (e.g. Red T-Shirt)
     @OneToOne
     @JoinColumn(name = "product_variant_id")
+    @JsonIgnore
     private ProductVariant productVariant;
 
-    @CreationTimestamp
+    @Column(name = "created_at", updatable = false)
+    @CreationTimestamp // Optimization: Replaces manual @PrePersist
     private LocalDateTime createdAt;
 
-    public enum BarcodeFormat {
-        UPC_A, UPC_E, EAN_13, EAN_8, CODE_128
-    }
 }

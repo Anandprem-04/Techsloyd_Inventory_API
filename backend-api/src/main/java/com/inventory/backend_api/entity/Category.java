@@ -1,19 +1,35 @@
 package com.inventory.backend_api.entity;
 
-import com.fasterxml.jackson.annotation.JsonBackReference;
-import com.fasterxml.jackson.annotation.JsonManagedReference;
-import jakarta.persistence.*;
-import lombok.Data;
-import lombok.ToString;
-import org.hibernate.annotations.CreationTimestamp;
-
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.Formula;
+
+import com.fasterxml.jackson.annotation.JsonBackReference;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonManagedReference;
+
+import jakarta.persistence.CascadeType;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.OneToMany;
+import jakarta.persistence.PreUpdate;
+import jakarta.persistence.Table;
+import lombok.Data;
+import lombok.ToString;
+
 @Entity
 @Table(name = "categories")
 @Data
+@JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
 public class Category {
 
     @Id
@@ -36,8 +52,9 @@ public class Category {
 
     private Integer position = 0;
 
-    @Column(name = "product_count")
-    private Integer productCount = 0;
+    // Optimization: Calculate dynamic count instead of storing stale static int
+    @Formula("(select count(*) from products p where p.category_id = id)")
+    private Integer productCount;
 
     // --- SELF-REFERENCING RELATIONSHIP (TREE) ---
     @ManyToOne(fetch = FetchType.LAZY)

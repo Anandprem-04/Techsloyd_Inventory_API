@@ -8,10 +8,6 @@ import java.util.Optional;
 
 @Repository
 public interface BarcodeRepository extends JpaRepository<Barcode, String> {
-
-    // Find barcode entry by the code itself (though findById does this too)
     Optional<Barcode> findByBarcode(String barcode);
-
-    // Check if a barcode already exists
     boolean existsByBarcode(String barcode);
 }
