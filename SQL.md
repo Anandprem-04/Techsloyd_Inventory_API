@@ -11,469 +11,489 @@
 - **Tables:** 7 (3NF Normalized)
 - **Purpose:** Retail/E-commerce inventory with hierarchical categories, product variants, and barcode scanning
 
-### Architecture Flow
+---
+
+## 🗂️ Tabular Entity-Relationship Diagram
+
+### Complete ER Table Structure
+
+| Table | PK | FK | Relationships | Cascade |
+|---|---|---|---|---|
+| **CATEGORIES** | id | parent_id → CATEGORIES.id (self) | 1:N with PRODUCTS | SET NULL |
+| **PRODUCTS** | id | category_id → CATEGORIES.id | 1:N with PRODUCT_VARIANTS<br>1:N with BARCODES | RESTRICT<br>CASCADE<br>CASCADE |
+| **VARIANT_OPTIONS** | id | - | 1:N with VARIANT_OPTION_VALUES | CASCADE |
+| **VARIANT_OPTION_VALUES** | id | variant_option_id → VARIANT_OPTIONS.id | 1:N with VARIANT_COMBINATIONS | CASCADE |
+| **PRODUCT_VARIANTS** | id | product_id → PRODUCTS.id | 1:N with VARIANT_COMBINATIONS<br>1:N with BARCODES | CASCADE<br>CASCADE |
+| **VARIANT_COMBINATIONS** | id | product_variant_id → PRODUCT_VARIANTS.id<br>variant_option_value_id → VARIANT_OPTION_VALUES.id | M:N Bridge Table | CASCADE<br>RESTRICT |
+| **BARCODES** | barcode | product_id → PRODUCTS.id (XOR)<br>product_variant_id → PRODUCT_VARIANTS.id | Links to either Product or Variant | CASCADE |
+
+---
+
+---
+
+## 🔗 Relationship Mechanics
+
+### How Categories & Products Connect
+
+**Categories Table Structure:**
+- Self-referencing: Each category can have ONE parent (parent_id) and ZERO to MANY children
+- Unlimited nesting: No depth limit on hierarchy
+- Root categories: Have parent_id = NULL
+
+**Cascade Behavior:**
 ```
-                    ┌──────────────────────────────────────────────────┐
-                    │         CATEGORIES (Hierarchical Tree)           │
-                    │  PK: id                                          │
-                    │  FK: parent_id → CATEGORIES.id (Self-reference)  │
-                    └────────────┬─────────────────────────────────────┘
-                                 │ 1:N (ON DELETE RESTRICT)
-                                 ↓
-                    ┌──────────────────────────────────────────────────┐
-                    │              PRODUCTS (Base Info)                │
-                    │  PK: id                                          │
-                    │  FK: category_id → CATEGORIES.id                 │
-                    │  Fields: name, sku, price, stock_level           │
-                    └────────┬──────────────────────────┬───────────────┘
-                             │                          │
-                             │ 1:N                      │ 1:N
-                             │ (CASCADE)                │ (CASCADE)
-                             ↓                          ↓
-        ┌────────────────────────────────┐   ┌─────────────────────────────┐
-        │    PRODUCT_VARIANTS (SKUs)     │   │   BARCODES (Scanner IDs)    │
-        │  PK: id                        │   │  PK: barcode                │
-        │  FK: product_id → PRODUCTS.id  │   │  FK: product_id ──────────┐ │
-        │  Fields: sku, price, stock     │   │  FK: variant_id ────────┐ │ │
-        └──────────┬─────────────────────┘   │  XOR: One FK must exist  │ │ │
-                   │                          └──────────┬───────────────┼─┘ │
-                   │ 1:N (CASCADE)                       │               │   │
-                   ↓                                     │               │   │
-        ┌────────────────────────────────┐              │ 1:N           └───┼─┐
-        │  VARIANT_COMBINATIONS          │              │ (CASCADE)         │ │
-        │  PK: id                        │              ↓                   │ │
-        │  FK: product_variant_id ───────┼──────────────┘                   │ │
-        │  FK: variant_option_value_id   │◄─────────────────────────────────┘ │
-        └──────────┬─────────────────────┘                                    │
-                   │ M:N Bridge Table                                         │
-                   │ N:1 (RESTRICT)                                           │
-                   ↓                                                          │
-        ┌────────────────────────────────┐                                    │
-        │  VARIANT_OPTION_VALUES         │                                    │
-        │  PK: id                        │                                    │
-        │  FK: variant_option_id         │                                    │
-        │  Fields: value, price_adj      │                                    │
-        └──────────┬─────────────────────┘                                    │
-                   │ N:1 (CASCADE)                                            │
-                   ↓                                                          │
-        ┌────────────────────────────────┐                                    │
-        │    VARIANT_OPTIONS             │                                    │
-        │  PK: id                        │                                    │
-        │  Fields: name, type, position  │                                    │
-        └────────────────────────────────┘                                    │
-                                                                               │
-        Legend:                                                                │
-        ────→  Foreign Key Relationship                                       │
-        1:N    One-to-Many                                                    │
-        M:N    Many-to-Many (Bridge Table)                                    │
-        XOR    Exclusive OR Constraint                                        │
-        CASCADE  Child deleted with parent                                    │
-        RESTRICT Cannot delete if children exist                              │
+Delete parent category → child.parent_id becomes NULL (SET NULL)
+Result: Child becomes root category instead of being deleted
+Purpose: Preserve data when reorganizing hierarchy
+```
+
+**Products Link to Categories:**
+```
+One Category → Many Products (1:N)
+Products.category_id → Categories.id [RESTRICT]
+
+Constraint: Cannot delete category if it has products
+Purpose: Maintain data integrity (prevent orphaned products)
 ```
 
 ---
 
-## 🗂 Complete Entity-Relationship Diagram
+### How Products & Variants Connect
 
-### Detailed Table Relationships
+**Products are Base Definitions:**
+- Store global attributes: name, base price, cost, tax_rate, stock_level
+- All variants inherit these values unless overridden
+- Each product can have ZERO or MANY variants
 
+**Variants are Saleable Items:**
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                          DATABASE: api (PostgreSQL)                         │
-│                              7 Tables - 3NF Normalized                      │
-└─────────────────────────────────────────────────────────────────────────────┘
+One Product → Many Variants (1:N)
+ProductVariants.product_id → Products.id [CASCADE]
 
-┌──────────────────────────────────────────────────────────────────────────────┐
-│  TABLE 1: CATEGORIES                                    [Self-Referencing]   │
-├──────────────────────────────────────────────────────────────────────────────┤
-│  PK: id (VARCHAR)                                                            │
-│  FK: parent_id → CATEGORIES.id (ON DELETE SET NULL)                          │
-│  Fields: name, slug, description, icon, color, image, is_active, position   │
-│                                                                              │
-│  Relationship:                                                               │
-│    • Self → Self (parent_id)         [0..1 : 0..*]                          │
-│    • Self → PRODUCTS (category_id)   [1 : 0..*]        ON DELETE RESTRICT   │
-└──────────────────────────────────────────────────────────────────────────────┘
-                                    │
-                                    │ 1:N
-                                    ↓
-┌──────────────────────────────────────────────────────────────────────────────┐
-│  TABLE 2: PRODUCTS                                          [Base Product]   │
-├──────────────────────────────────────────────────────────────────────────────┤
-│  PK: id (VARCHAR)                                                            │
-│  FK: category_id → CATEGORIES.id (ON DELETE RESTRICT)                        │
-│  Fields: name, sku, price, cost_price, tax_rate, stock_level, status        │
-│                                                                              │
-│  Relationships:                                                              │
-│    • CATEGORIES → Self (category_id)     [1 : 0..*]                          │
-│    • Self → PRODUCT_VARIANTS (product_id) [1 : 0..*]    ON DELETE CASCADE   │
-│    • Self → BARCODES (product_id)        [1 : 0..*]    ON DELETE CASCADE   │
-└──────────────────────────────────────────────────────────────────────────────┘
-                        │                               │
-                        │ 1:N                           │ 1:N
-                        ↓                               ↓
-┌─────────────────────────────────────────┐  ┌────────────────────────────────┐
-│  TABLE 5: PRODUCT_VARIANTS    [SKUs]    │  │  TABLE 7: BARCODES             │
-├─────────────────────────────────────────┤  ├────────────────────────────────┤
-│  PK: id (VARCHAR)                       │  │  PK: barcode (VARCHAR)         │
-│  FK: product_id → PRODUCTS.id (CASCADE) │  │  FK: product_id (CASCADE)      │
-│  Fields: sku, price, stock_level        │  │  FK: product_variant_id        │
-│                                         │  │      (CASCADE)                 │
-│  Relationship:                          │  │  Fields: format                │
-│    • PRODUCTS → Self (product_id)       │  │                                │
-│         [1 : 0..*]                      │  │  XOR Constraint:               │
-│    • Self → BARCODES (variant_id)       │  │    (product_id IS NOT NULL     │
-│         [1 : 0..*]   ON DELETE CASCADE  │  │     AND variant_id IS NULL)    │
-│    • Self → VARIANT_COMBINATIONS        │  │    OR                          │
-│         (product_variant_id) [1 : 1..*] │  │    (product_id IS NULL         │
-│         ON DELETE CASCADE               │  │     AND variant_id IS NOT NULL)│
-└─────────────┬───────────────────────────┘  └────────────────────────────────┘
-              │ 1:N                                       ↑
-              │                                           │ 1:N
-              ↓                                           │
-┌─────────────────────────────────────────┐              │
-│  TABLE 6: VARIANT_COMBINATIONS          │              │
-│              [M:N Bridge]               │              │
-├─────────────────────────────────────────┤              │
-│  PK: id (VARCHAR)                       │              │
-│  FK: product_variant_id                 │──────────────┘
-│      → PRODUCT_VARIANTS.id (CASCADE)    │
-│  FK: variant_option_value_id            │
-│      → VARIANT_OPTION_VALUES.id         │
-│      (RESTRICT)                         │
-└─────────────┬───────────────────────────┘
-              │ N:1
-              ↓
-┌─────────────────────────────────────────┐
-│  TABLE 4: VARIANT_OPTION_VALUES         │
-│              [Option Values]            │
-├─────────────────────────────────────────┤
-│  PK: id (VARCHAR)                       │
-│  FK: variant_option_id                  │
-│      → VARIANT_OPTIONS.id (CASCADE)     │
-│  Fields: value, position,               │
-│          price_adjustment_type,         │
-│          price_adjustment_value         │
-│                                         │
-│  Relationships:                         │
-│    • VARIANT_OPTIONS → Self             │
-│         [1 : 1..*]                      │
-│    • Self → VARIANT_COMBINATIONS        │
-│         [1 : 0..*]   ON DELETE RESTRICT │
-└─────────────┬───────────────────────────┘
-              │ N:1
-              ↓
-┌─────────────────────────────────────────┐
-│  TABLE 3: VARIANT_OPTIONS               │
-│              [Option Types]             │
-├─────────────────────────────────────────┤
-│  PK: id (VARCHAR)                       │
-│  Fields: name, position, type           │
-│          (BUTTON|DROPDOWN|SWATCH)       │
-│                                         │
-│  Relationship:                          │
-│    • Self → VARIANT_OPTION_VALUES       │
-│         (variant_option_id) [1 : 1..*]  │
-│         ON DELETE CASCADE               │
-└─────────────────────────────────────────┘
+Cascade Behavior: Delete product → ALL variants auto-deleted
+Purpose: Maintain consistency (no orphaned variants)
+```
 
-┌─────────────────────────────────────────────────────────────────────────────┐
-│  CARDINALITY LEGEND:                                                        │
-│  ──────────────────────                                                     │
-│  [1 : 1]      One-to-One                                                    │
-│  [1 : 0..*]   One-to-Many (Optional)                                        │
-│  [1 : 1..*]   One-to-Many (Required)                                        │
-│  [M : N]      Many-to-Many (Bridge Table Required)                          │
-│                                                                             │
-│  CASCADE:   Child deleted when parent deleted                               │
-│  RESTRICT:  Cannot delete parent if children exist                          │
-│  SET NULL:  Foreign key set to NULL when parent deleted                     │
-└─────────────────────────────────────────────────────────────────────────────┘
+**Independent Variant Properties:**
+```
+Product: T-Shirt ($20.00 base)
+├─ Variant 1: TSHIRT-RED-S   ($21.00 - different price)
+├─ Variant 2: TSHIRT-RED-M   ($22.00 - different price)
+└─ Variant 3: TSHIRT-BLUE-L  ($25.00 - different price)
+
+Each variant can override:
+- price (different from base)
+- cost_price
+- stock_level (tracked per variant, not aggregated)
 ```
 
 ---
 
-## 🔄 Data Flow Examples
+### How Variant Options & Values Connect
 
-### Flow 1: Creating Product with Variants
+**Options are Global Templates:**
 ```
-Step 1: Create Category
-┌─────────────────────┐
-│   CATEGORIES        │  INSERT: id='cat-001', name='Electronics'
-└─────────────────────┘
+One Option → Many Values (1:N)
+VariantOptionValues.variant_option_id → VariantOptions.id [CASCADE]
 
-Step 2: Create Base Product
-┌─────────────────────┐
-│   PRODUCTS          │  INSERT: id='prod-001', category_id='cat-001',
-└─────────────────────┘         name='T-Shirt', price=20.00
+Example: One "Size" option has multiple values:
+├─ Small (price_adj: $0 FIXED)
+├─ Medium (price_adj: +$2 FIXED)
+└─ Large (price_adj: +$5 FIXED)
 
-Step 3: Create Option Types
-┌─────────────────────┐
-│  VARIANT_OPTIONS    │  INSERT: id='opt-001', name='Size'
-└─────────────────────┘  INSERT: id='opt-002', name='Color'
-
-Step 4: Create Option Values
-┌─────────────────────────────┐
-│  VARIANT_OPTION_VALUES      │  INSERT: id='val-001', option_id='opt-001',
-└─────────────────────────────┘         value='Small', price_adj=0
-                                 INSERT: id='val-002', value='Medium', price_adj=2
-                                 INSERT: id='val-003', value='Red', price_adj=0
-
-Step 5: Create Variant (SKU)
-┌─────────────────────┐
-│  PRODUCT_VARIANTS   │  INSERT: id='var-001', product_id='prod-001',
-└─────────────────────┘         sku='TSHIRT-RED-M', price=22.00
-
-Step 6: Link Combinations (M:N)
-┌─────────────────────────────┐
-│  VARIANT_COMBINATIONS       │  INSERT: variant_id='var-001', value_id='val-002' (Medium)
-└─────────────────────────────┘  INSERT: variant_id='var-001', value_id='val-003' (Red)
-
-Step 7: Assign Barcode
-┌─────────────────────┐
-│   BARCODES          │  INSERT: barcode='8902190410203',
-└─────────────────────┘         product_variant_id='var-001'
+Cascade Behavior: Delete option → DELETE all its values
+Purpose: Option cannot exist without values
 ```
 
-### Flow 2: POS Barcode Scanning
+**Values Define Price Adjustments:**
 ```
-┌────────────┐
-│ 1. SCAN    │  Barcode: "8902190410203"
-└──────┬─────┘
-       ↓
-┌──────────────────────────────────────┐
-│ 2. QUERY BARCODES TABLE              │
-│    SELECT * FROM barcodes            │
-│    WHERE barcode = '8902190410203'   │
-└──────┬───────────────────────────────┘
-       ↓
-┌──────────────────────────────────────┐
-│ 3. CHECK XOR CONSTRAINT              │
-│    Found: product_variant_id='var-001'│
-│    (product_id is NULL)              │
-└──────┬───────────────────────────────┘
-       ↓
-┌──────────────────────────────────────┐
-│ 4. FETCH VARIANT DETAILS             │
-│    SELECT * FROM product_variants    │
-│    WHERE id = 'var-001'              │
-│    Result: sku='TSHIRT-RED-M',       │
-│            price=22.00, stock=50     │
-└──────┬───────────────────────────────┘
-       ↓
-┌──────────────────────────────────────┐
-│ 5. FETCH ATTRIBUTE COMBINATIONS      │
-│    SELECT opt.name, val.value        │
-│    FROM variant_combinations vc      │
-│    JOIN variant_option_values val    │
-│      ON vc.value_id = val.id         │
-│    JOIN variant_options opt          │
-│      ON val.option_id = opt.id       │
-│    WHERE vc.variant_id = 'var-001'   │
-│    Result: Color=Red, Size=Medium    │
-└──────┬───────────────────────────────┘
-       ↓
-┌──────────────────────────────────────┐
-│ 6. DISPLAY ON POS                    │
-│    T-Shirt (Red, Medium)             │
-│    Price: $22.00                     │
-│    Stock: 50 units                   │
-│    [Add to Cart]                     │
-└──────────────────────────────────────┘
-```
+Two Adjustment Types:
 
-### Flow 3: Category Tree Query
-```
-Query: Get all products under "Electronics" (including sub-categories)
+FIXED: Absolute amount added to base price
+  Base: $20.00 + Small: $0 = $20.00
+  Base: $20.00 + Large: +$5 = $25.00
 
-┌─────────────────────────────────────────────────────────────────┐
-│  WITH RECURSIVE category_tree AS (                              │
-│    -- Anchor: Start with Electronics                            │
-│    SELECT id FROM categories WHERE id = 'cat-001'               │
-│                                                                 │
-│    UNION ALL                                                    │
-│                                                                 │
-│    -- Recursive: Get all children                               │
-│    SELECT c.id FROM categories c                                │
-│    JOIN category_tree ct ON c.parent_id = ct.id                │
-│  )                                                              │
-│  SELECT p.* FROM products p                                     │
-│  JOIN category_tree ct ON p.category_id = ct.id                │
-└─────────────────────────────────────────────────────────────────┘
-
-Execution Flow:
-  Electronics (cat-001)
-       ↓
-  ┌───────────┬────────────┐
-  ↓           ↓            ↓
-Phones    Computers    Cameras
-(cat-002)  (cat-003)   (cat-004)
-  ↓
-Smartphones
-(cat-005)
-
-Result: All products linked to cat-001, cat-002, cat-003, cat-004, cat-005
+PERCENTAGE: Relative percentage of base price
+  Base: $20.00 × (1 + 0%) = $20.00
+  Base: $20.00 × (1 + 10%) = $22.00
 ```
 
 ---
 
-## 📋 Table Details
+### How Variants Use Option Values (M:N Bridge)
 
-### 1. **CATEGORIES**
-**Purpose:** Unlimited-depth hierarchical tree
-
-| Key Features | Description |
-|---|---|
-| Self-referencing | `parent_id` references same table |
-| Cascade | ON DELETE SET NULL (orphans become roots) |
-| Unique Slug | SEO-friendly URLs |
-| Manual Ordering | `position` field for custom sort |
-
-**Example Hierarchy:**
+**Variant Combinations Bridge Table:**
 ```
-Electronics
-├── Phones
-│   └── Smartphones
-└── Computers
+One Variant → Many Combinations (1:N)
+VariantCombinations.product_variant_id → ProductVariants.id [CASCADE]
+
+One Value → Many Combinations (1:N)
+VariantCombinations.variant_option_value_id → VariantOptionValues.id [RESTRICT]
+
+Result: M:N relationship (Variants ←→ Values via Combinations)
 ```
 
----
-
-### 2. **PRODUCTS**
-**Purpose:** Base product information (variants inherit from this)
-
-| Key Features | Description |
-|---|---|
-| Category Link | ON DELETE RESTRICT (protect categories) |
-| Unique SKU | Global uniqueness enforced |
-| Pricing | Base price + cost + tax rate |
-| Stock Tracking | Total stock across all variants |
-| Status Check | `active` \| `inactive` constraint |
-
-**Pricing Flow:**
+**How Combinations Define Variants:**
 ```
-Base Price: $20.00
-Cost Price: $8.00
-Tax Rate: 10%
-→ Final Price: $20.00 + ($20.00 × 0.10) = $22.00
+Variant: TSHIRT-RED-M requires:
+├─ One Color value: Red (from Color option)
+└─ One Size value: Medium (from Size option)
+
+Stored as combinations:
+Combination 1: TSHIRT-RED-M → Red
+Combination 2: TSHIRT-RED-M → Medium
+
+Price Calculation:
+Base Product Price: $20.00
++ Size Adjustment (Medium): +$2.00
++ Color Adjustment (Red): $0.00
+= Final Variant Price: $22.00
+```
+
+**RESTRICT on Values:**
+```
+Cannot delete a value if it's used in any combination
+Cascade on Variant: Delete variant → delete its combinations
+Purpose: Prevent orphaned option values in combinations
 ```
 
 ---
 
-### 3. **VARIANT_OPTIONS**
-**Purpose:** Global option types (Size, Color, Material)
+### How Barcodes Connect to Products
 
-| UI Types | Use Case |
-|---|---|
-| BUTTON | Small choices (S, M, L) |
-| DROPDOWN | Long lists (30+ colors) |
-| SWATCH | Visual selection (color squares) |
-
----
-
-### 4. **VARIANT_OPTION_VALUES**
-**Purpose:** Specific values with price adjustments
-
-| Adjustment Type | Formula | Example |
-|---|---|---|
-| FIXED | Base + Amount | $20 + $5 = $25 |
-| PERCENTAGE | Base × (1 + %) | $20 × 1.10 = $22 |
-
-**Example Data:**
-- Size: Small ($0), Medium (+$2), Large (+$5)
-- Color: Red ($0), Blue ($0), Gold (+10%)
-
----
-
-### 5. **PRODUCT_VARIANTS**
-**Purpose:** Physical SKU with specific attributes
-
-| Key Features | Description |
-|---|---|
-| Unique SKU | Per variant (TSHIRT-RED-M) |
-| Independent Pricing | Overrides base product price |
-| Stock Tracking | Per-variant inventory |
-| Cascade | ON DELETE CASCADE with product |
-
----
-
-### 6. **VARIANT_COMBINATIONS**
-**Purpose:** Bridge table (M:N relationship)
-
-**How It Works:**
+**XOR Constraint (Exclusive OR):**
 ```
-Variant: TSHIRT-RED-M (var-002)
-├── Combination 1: var-002 → Red (val-004)
-└── Combination 2: var-002 → Medium (val-003)
+Each barcode MUST satisfy ONE of these:
+1. product_id IS NOT NULL AND product_variant_id IS NULL
+   └─ Simple product (no variants)
+
+2. product_id IS NULL AND product_variant_id IS NOT NULL
+   └─ Variant-specific product
+
+INVALID states (prevented):
+❌ Both product_id and product_variant_id filled
+❌ Both product_id and product_variant_id NULL
 ```
 
-Each variant has multiple combinations defining its attributes.
+**Barcode Linking Mechanisms:**
 
----
-
-### 7. **BARCODES**
-**Purpose:** Central registry with format validation
-
-| Format | Length | Use Case |
-|---|---|---|
-| UPC-A | 12 digits | North America |
-| EAN-13 | 13 digits | International |
-| CODE-128 | Variable | Alphanumeric |
-
-**XOR Constraint:** Links to EITHER product OR variant (never both, never neither)
-
-**Scanning Flow:**
+For Simple Products (no variants):
 ```
-1. Scan barcode "8902190410203"
-2. Query barcodes table
-3. Find linked product/variant
-4. Retrieve price, stock, details
-5. Add to cart
+Barcode → Product
+  8901234567890 → product-001
+  └─ One barcode can link to only ONE product
+  └─ Product can have multiple barcodes (different formats)
+```
+
+For Variant Products:
+```
+Barcode → Product Variant (not the product itself)
+  8901234567890 → variant-001 (TSHIRT-RED-M)
+  8901234567891 → variant-002 (TSHIRT-BLUE-L)
+  
+Scanning barcode retrieves:
+  Product info (from variant.product_id)
+  Variant-specific price, stock, attributes
+```
+
+**Cascade Behavior:**
+```
+Delete Product → CASCADE delete all its barcodes
+Delete Variant → CASCADE delete all its barcodes
+
+Purpose: Barcodes always point to valid entities
 ```
 
 ---
 
-## 🔗 Cascade Behaviors
+## 🎯 Table Details & Specifications
 
-| Action | Result |
-|---|---|
-| Delete Category (with products) | ❌ BLOCKED (RESTRICT) |
-| Delete Category (no products) | ✅ Children become roots |
-| Delete Product | ✅ All variants deleted (CASCADE) |
-| Delete Product | ✅ All barcodes deleted (CASCADE) |
-| Delete Variant | ✅ All combinations deleted (CASCADE) |
-| Delete Option Value (in use) | ❌ BLOCKED (RESTRICT) |
+### TABLE 1: CATEGORIES (Hierarchical Tree)
+**Purpose:** Store product categories in a hierarchical tree structure with unlimited nesting
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| id | VARCHAR(50) | PK | Unique category identifier |
+| parent_id | VARCHAR(50) | FK (self) | References parent category (NULL = root) |
+| name | VARCHAR(255) | NOT NULL | Category display name |
+| slug | VARCHAR(255) | UNIQUE | SEO-friendly URL identifier |
+| description | TEXT | - | Category description |
+| icon | VARCHAR(255) | - | Icon file reference |
+| color | VARCHAR(50) | - | Visual color code |
+| image | VARCHAR(255) | - | Image file reference |
+| is_active | BOOLEAN | DEFAULT TRUE | Active/inactive toggle |
+| position | INTEGER | DEFAULT 0 | Manual ordering within parent |
+| product_count | INTEGER | DEFAULT 0 | Cached count of direct products |
+| created_at | TIMESTAMP | DEFAULT NOW() | Creation timestamp |
+
+**Key Mechanism:** Self-referencing through `parent_id` allows unlimited hierarchy depth. When a category is deleted, its children's `parent_id` becomes NULL (ON DELETE SET NULL), converting them to root categories.
 
 ---
 
-## 💡 Key Workflows
+### TABLE 2: PRODUCTS
+**Purpose:** Base product information that variants inherit from
 
-### Creating Product with Variants
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| id | VARCHAR(50) | PK | Unique product identifier |
+| category_id | VARCHAR(50) | FK → CATEGORIES | Link to parent category |
+| name | VARCHAR(255) | NOT NULL | Product display name |
+| sku | VARCHAR(100) | UNIQUE | Stock Keeping Unit (global) |
+| description | TEXT | - | Product description |
+| image | VARCHAR(255) | - | Product image reference |
+| unit | VARCHAR(50) | - | Unit of measure (e.g., "piece", "kg") |
+| price | DECIMAL(10,2) | NOT NULL | Base selling price |
+| cost_price | DECIMAL(10,2) | - | Cost/wholesale price |
+| tax_rate | DECIMAL(5,2) | DEFAULT 0.0 | Tax percentage (0-100%) |
+| stock_level | INTEGER | DEFAULT 0 | Aggregate stock across variants |
+| reorder_level | INTEGER | DEFAULT 10 | Threshold for reorder alerts |
+| status | VARCHAR(20) | CHECK constraint | 'active' or 'inactive' |
+| created_at | TIMESTAMP | DEFAULT NOW() | Creation timestamp |
+| updated_at | TIMESTAMP | - | Last modification timestamp |
+
+**Key Mechanism:** ON DELETE RESTRICT on `category_id` prevents category deletion if products exist. All variants inherit base price/cost/tax unless overridden. Status field controls product visibility.
+
+---
+
+### TABLE 3: VARIANT_OPTIONS
+**Purpose:** Define reusable option types across all products (not product-specific)
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| id | VARCHAR(50) | PK | Unique option identifier |
+| name | VARCHAR(100) | NOT NULL | Option type name (e.g., "Size", "Color") |
+| position | INTEGER | DEFAULT 0 | Display order |
+| type | VARCHAR(20) | CHECK constraint | UI type: BUTTON, DROPDOWN, SWATCH |
+
+**Key Mechanism:** Global definitions - one "Size" option is reused across all products. Type determines how options are displayed in UI (radio buttons, dropdown, or color swatches). One option → Many values (1:N).
+
+---
+
+### TABLE 4: VARIANT_OPTION_VALUES
+**Purpose:** Specific values for each option with price adjustments
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| id | VARCHAR(50) | PK | Unique value identifier |
+| variant_option_id | VARCHAR(50) | FK → VARIANT_OPTIONS | Parent option |
+| value | VARCHAR(100) | NOT NULL | The actual value (e.g., "Small", "Red") |
+| display_value | VARCHAR(100) | - | Custom display (e.g., "S", "🔴") |
+| price_adjustment_type | VARCHAR(20) | CHECK constraint | FIXED or PERCENTAGE |
+| price_adjustment_value | DECIMAL(10,2) | DEFAULT 0.0 | Adjustment amount |
+| position | INTEGER | DEFAULT 0 | Display order within option |
+
+**Key Mechanism:** ON DELETE CASCADE with option (delete option → delete all values). Price adjustments are applied to base price:
+- **FIXED:** Base $20 + $5 = $25
+- **PERCENTAGE:** Base $20 × 1.10 = $22
+
+---
+
+### TABLE 5: PRODUCT_VARIANTS
+**Purpose:** Individual SKUs with specific attribute combinations (the actual saleable items)
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| id | VARCHAR(50) | PK | Unique variant identifier |
+| product_id | VARCHAR(50) | FK → PRODUCTS | Parent product |
+| sku | VARCHAR(100) | UNIQUE | Variant-specific SKU (e.g., "TSHIRT-RED-M") |
+| price | DECIMAL(10,2) | NOT NULL | Variant-specific price (overrides base) |
+| cost_price | DECIMAL(10,2) | - | Variant-specific cost |
+| stock_level | INTEGER | DEFAULT 0 | Inventory for THIS variant only |
+| is_active | BOOLEAN | DEFAULT TRUE | Availability toggle |
+
+**Key Mechanism:** ON DELETE CASCADE with product (delete product → delete all variants). Each variant is independent - different SKUs can have different prices and stock levels. Combinations table defines which options/values apply to each variant.
+
+---
+
+### TABLE 6: VARIANT_COMBINATIONS (Bridge Table)
+**Purpose:** M:N relationship linking variants to their defining option values
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| id | VARCHAR(50) | PK | Unique combination identifier |
+| product_variant_id | VARCHAR(50) | FK → PRODUCT_VARIANTS | Which variant |
+| variant_option_value_id | VARCHAR(50) | FK → VARIANT_OPTION_VALUES | Which option value |
+
+**Key Mechanism:** M:N Bridge table - ONE variant links to MANY values (Size: M, Color: Red). 
+- ON DELETE CASCADE on variant_id: Delete variant → delete its combinations
+- ON DELETE RESTRICT on value_id: Cannot delete value if in use (prevents orphaned data)
+
+Example:
 ```
-1. Create Category (Electronics)
-2. Create Product (T-Shirt, base price $20)
-3. Create Options (Size, Color)
-4. Create Values (Small, Red)
-5. Create Variant (TSHIRT-RED-S, price $21)
-6. Link Combinations (variant → Red + Small)
-7. Assign Barcode (8902190410203 → variant)
+Variant: TSHIRT-RED-M (var-001)
+├─ Combination 1: var-001 → Size/Medium
+└─ Combination 2: var-001 → Color/Red
 ```
 
-### Barcode Scanning at POS
+---
+
+### TABLE 7: BARCODES
+**Purpose:** Central registry mapping barcodes to products OR variants for scanning
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| barcode | VARCHAR(100) | PK | Barcode value (12-128 chars depending on format) |
+| format | VARCHAR(20) | CHECK constraint | Format type: UPC_A, UPC_E, EAN_13, EAN_8, CODE_128 |
+| product_id | VARCHAR(50) | FK → PRODUCTS (nullable) | Simple products (no variants) |
+| product_variant_id | VARCHAR(50) | FK → PRODUCT_VARIANTS (nullable) | Variant-specific products |
+| created_at | TIMESTAMP | DEFAULT NOW() | Barcode assignment timestamp |
+
+**Key Mechanism:** 
+- **XOR Constraint:** Must link to product_id OR product_variant_id (never both, never neither)
+  - Simple product → barcode links to product
+  - Variant product → barcode links to specific variant
+- **Format Validation:** Only accepts 5 standard barcode formats (UPC-A 12 digits, EAN-13 13 digits, etc.)
+- **CASCADE deletion:** Delete product/variant → automatically delete associated barcode
+
+---
+
+## � Workflow Visualizations
+
+### Workflow 1: Creating a Product with Variants
+
 ```
-Scan → Lookup barcode table → Get product/variant ID
-     → Fetch details (price, tax, stock)
-     → Display on screen
-     → Process transaction
+Step-by-Step Process:
+
+1. CREATE CATEGORY
+   └─ Electronics (cat-001)
+
+2. CREATE BASE PRODUCT
+   └─ T-Shirt (prod-001)
+      ├─ Base Price: $20.00
+      ├─ Cost Price: $8.00
+      └─ Category: Electronics
+
+3. CREATE VARIANT OPTIONS
+   ├─ Size (opt-001)
+   │   ├─ Small ($0)
+   │   ├─ Medium ($2)
+   │   └─ Large ($5)
+   └─ Color (opt-002)
+       ├─ Red ($0)
+       ├─ Blue ($0)
+       └─ Gold (+10%)
+
+4. CREATE PRODUCT VARIANT
+   └─ TSHIRT-RED-M (var-001)
+      ├─ Product: T-Shirt
+      ├─ Price: $22.00 (20 + 2)
+      └─ Stock: 50 units
+
+5. LINK VARIANT COMBINATIONS
+   └─ Variant TSHIRT-RED-M has:
+      ├─ Red (from Color option)
+      └─ Medium (from Size option)
+
+6. ASSIGN BARCODE
+   └─ 8902190410203 → TSHIRT-RED-M
+
+Result: Complete product ready for POS
 ```
 
-### Category Tree Navigation
+---
+
+### Workflow 2: POS Barcode Scanning
+
 ```
-SELECT with RECURSIVE CTE
-→ Start from root (parent_id IS NULL)
-→ Join children iteratively
-→ Build full tree with levels
+Customer scans barcode at checkout:
+
+┌─────────────────────────────────┐
+│ INPUT: Barcode "8902190410203"  │
+└────────────┬────────────────────┘
+             ↓
+        ┌─────────────────────┐
+        │  LOOKUP BARCODE     │  Query: SELECT * FROM barcodes
+        │ in BARCODES table   │         WHERE barcode = '8902190410203'
+        └────────────┬────────┘
+                     ↓
+        ┌─────────────────────┐
+        │ VALIDATE XOR        │  Check: product_id OR variant_id
+        │ constraint          │         (not both, not neither)
+        └────────────┬────────┘
+                     ↓
+        ┌─────────────────────┐
+        │ FETCH VARIANT DETAILS
+        │ from PRODUCT_VARIANTS│  Found: TSHIRT-RED-M
+        └────────────┬────────┘  Price: $22.00, Stock: 50
+                     ↓
+        ┌─────────────────────┐
+        │ GET VARIANT OPTIONS │  Join through:
+        │ (Size, Color, etc)  │  - VARIANT_COMBINATIONS
+        └────────────┬────────┘  - VARIANT_OPTION_VALUES
+                     ↓            - VARIANT_OPTIONS
+        ┌─────────────────────┐
+        │ DISPLAY ON POS      │  T-Shirt (Red, Medium)
+        │                     │  Price: $22.00
+        └─────────────────────┘  Stock: 50 ✓
 ```
+
+---
+
+### Workflow 3: Category Hierarchy Query
+
+```
+Query: Find all products under "Electronics" (including sub-categories)
+
+Database Tree Structure:
+┌─────────────────┐
+│  Electronics    │ (cat-001)
+└────────┬────────┘
+         │
+    ┌────┴──────┬──────────┐
+    ↓           ↓          ↓
+  Phones   Computers    Cameras
+  (cat-002) (cat-003)   (cat-004)
+    │
+    ↓
+ Smartphones
+ (cat-005)
+
+SQL Execution:
+1. Start with "Electronics" (cat-001)
+2. Recursively find all children
+   └─ Phones (cat-002)
+      └─ Smartphones (cat-005)
+   └─ Computers (cat-003)
+   └─ Cameras (cat-004)
+3. Get all products linked to any category in the tree
+4. Return full product list across hierarchy
+
+Result: All products from cat-001, cat-002, cat-003, cat-004, cat-005
+```
+
+---
+
+## 📊 Data Integrity Rules
+
+### Constraints & Validations
+
+| Table | Constraint | Rule | Purpose |
+|---|---|---|---|
+| **PRODUCTS** | RESTRICT on category_id | Cannot delete category with products | Protect data structure |
+| **PRODUCT_VARIANTS** | CASCADE on product_id | Auto-delete variants if product deleted | Maintain consistency |
+| **VARIANT_COMBINATIONS** | CASCADE on variant_id | Auto-delete combinations if variant deleted | Maintain consistency |
+| **VARIANT_COMBINATIONS** | RESTRICT on value_id | Cannot delete value if in use | Prevent orphaned data |
+| **BARCODES** | XOR constraint | Must link to product OR variant (not both) | Ensure valid state |
+| **CATEGORIES** | SET NULL on parent_id | Orphaned categories become roots | Allow tree restructuring |
+
+---
+
+## � Validation Rules
+
+**Check Constraints Applied:**
+- Product prices: >= 0
+- Variant stock levels: >= 0  
+- Tax rates: 0-100%
+- Product cost < Product price
+- Product status: 'active' | 'inactive'
+- Barcode format: UPC_A | UPC_E | EAN_13 | EAN_8 | CODE_128
+- Barcode XOR: (product_id IS NOT NULL) XOR (variant_id IS NOT NULL)
+
+**Unique Constraints Applied:**
+- Categories.slug: SEO-friendly URL must be globally unique
+- Products.sku: Stock Keeping Unit must be globally unique
+- ProductVariants.sku: Each variant SKU must be globally unique
+- Barcodes.barcode: Barcode value must be globally unique
 
 ---
 
@@ -551,72 +571,73 @@ WHERE LOWER(name) LIKE LOWER('%wireless%')
 
 ## 🔧 Performance Optimization
 
-### Indexes (Already in Schema.sql)
-```
-categories: parent_id, slug
-products: category_id, sku
-product_variants: product_id
-variant_combinations: product_variant_id
-barcodes: product_id, product_variant_id
-```
+### Indexes
+The following indexes are defined in [Schema.sql](Schema.sql):
+- Categories: parent_id, slug
+- Products: category_id, sku  
+- Product Variants: product_id
+- Variant Combinations: product_variant_id
+- Barcodes: product_id, product_variant_id
 
-### Best Practices
-1. Filter by indexed columns (id, sku, slug)
-2. Use JOINs over multiple queries
-3. Pagination with LIMIT/OFFSET
-4. Cache static data (options, values)
-5. Run ANALYZE periodically
+### Query Optimization Tips
+1. **Filter by indexed columns:** Always use id, sku, or slug in WHERE clauses
+2. **Use JOINs:** Fetch related data in single query instead of multiple queries
+3. **Pagination:** Use LIMIT/OFFSET for large result sets
+4. **Cache static data:** Options and values rarely change, consider caching
+5. **Regular maintenance:** Run ANALYZE and VACUUM periodically
 
 ---
 
-## 🔄 Maintenance
+## 📝 Database Design
+
+### 3NF Normalization
+
+| Level | Rule | Our Implementation |
+|---|---|---|
+| **1NF** | Atomic values only | No repeating groups, each cell has single value |
+| **2NF** | Remove partial dependencies | Bridge table for M:N relationships |
+| **3NF** | Remove transitive dependencies | Option values separate from options |
+
+**Benefits:**
+- ✅ No data redundancy
+- ✅ Data integrity maintained  
+- ✅ Easy to update/maintain
+- ✅ Flexible querying
+- ✅ Scalable design
+
+---
+
+## 🔐 Database Maintenance
 
 ### Backup
 ```bash
 pg_dump -U postgres api > backup_$(date +%Y%m%d).sql
 ```
 
-### Restore
+### Restore  
 ```bash
 psql -U postgres api < backup_20260116.sql
 ```
 
 ### Optimize
 ```sql
-ANALYZE;  -- Update statistics
-VACUUM;   -- Free space
+ANALYZE;    -- Update table statistics
+VACUUM;     -- Reclaim space
 ```
 
 ---
 
-## 📝 Normalization (3NF)
-
-**Why 3NF?**
-
-| Normal Form | Rule | Implementation |
-|---|---|---|
-| 1NF | Atomic values | No comma-separated lists |
-| 2NF | No partial dependencies | Bridge tables (combinations) |
-| 3NF | No transitive dependencies | Option values separate from options |
-
-**Benefits:**
-- ✅ No redundancy
-- ✅ Data integrity
-- ✅ Easy updates
-- ✅ Flexible queries
-
----
-
-## 📚 Schema Version
+## 📌 Schema Information
 
 - **Version:** 1.0
 - **Updated:** January 16, 2026
-- **PostgreSQL:** 12+
+- **DBMS:** PostgreSQL 12+
+- **Status:** Production Ready
 - **Encoding:** UTF-8
 
 ---
 
-**For detailed SQL with comments, see [Schema.sql](Schema.sql)**
+**For SQL code with comments, see [Schema.sql](Schema.sql)**
 
 ---
 
